@@ -8,14 +8,14 @@ import base64
 import logging
 import os
 import sys
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Literal, cast
 import json
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 
 # MCP imports
-from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.mcpserver import MCPServer, Context
 from mcp.types import ToolAnnotations
 
 # Google API imports
@@ -81,8 +81,17 @@ class SpreadsheetContext:
     folder_id: Optional[str] = None
 
 
+def _lifespan(ctx: Context | None) -> SpreadsheetContext:
+    """Return the lifespan context, failing clearly when the MCP server did not inject one."""
+    if ctx is None:
+        raise ValueError(
+            "MCP context was not injected; call this tool through the MCP server."
+        )
+    return cast(SpreadsheetContext, ctx.request_context.lifespan_context)
+
+
 @asynccontextmanager
-async def spreadsheet_lifespan(server: FastMCP) -> AsyncIterator[SpreadsheetContext]:
+async def spreadsheet_lifespan(server: MCPServer) -> AsyncGenerator[SpreadsheetContext, None]:
     """Manage Google Spreadsheet API connection lifecycle"""
     # Authenticate and build the service
     creds = None
@@ -179,12 +188,10 @@ try:
 except ValueError:
     _resolved_port = 8000
 
-# Initialize the MCP server with explicit host/port to ensure binding as configured
-mcp = FastMCP("Google Spreadsheet",
-              dependencies=["google-auth", "google-auth-oauthlib", "google-api-python-client"],
-              lifespan=spreadsheet_lifespan,
-              host=_resolved_host,
-              port=_resolved_port)
+# Initialize the MCP server. Transport binding (host/port) is configured in main().
+mcp = MCPServer("Google Spreadsheet",
+                dependencies=["google-auth", "google-auth-oauthlib", "google-api-python-client"],
+                lifespan=spreadsheet_lifespan)
 
 
 def tool(annotations: Optional[ToolAnnotations] = None):
@@ -221,14 +228,14 @@ def tool(annotations: Optional[ToolAnnotations] = None):
 @tool(
     annotations=ToolAnnotations(
         title="Get Sheet Data",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def get_sheet_data(spreadsheet_id: str,
                    sheet: str,
                    range: Optional[str] = None,
                    include_grid_data: bool = False,
-                   ctx: Context = None) -> Dict[str, Any]:
+                   ctx: Context | None = None) -> Dict[str, Any]:
     """
     Get data from a specific sheet in a Google Spreadsheet.
     
@@ -244,7 +251,7 @@ def get_sheet_data(spreadsheet_id: str,
     Returns:
         Grid data structure with either full metadata or just values from Google Sheets API, depending on include_grid_data parameter
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
 
     # Construct the range - keep original API behavior
     if range:
@@ -280,13 +287,13 @@ def get_sheet_data(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Get Sheet Formulas",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def get_sheet_formulas(spreadsheet_id: str,
                        sheet: str,
                        range: Optional[str] = None,
-                       ctx: Context = None) -> List[List[Any]]:
+                       ctx: Context | None = None) -> List[List[Any]]:
     """
     Get formulas from a specific sheet in a Google Spreadsheet.
     
@@ -298,7 +305,7 @@ def get_sheet_formulas(spreadsheet_id: str,
     Returns:
         A 2D array of the sheet formulas.
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Construct the range
     if range:
@@ -320,14 +327,14 @@ def get_sheet_formulas(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Update Cells",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def update_cells(spreadsheet_id: str,
                 sheet: str,
                 range: str,
                 data: List[List[Any]],
-                ctx: Context = None) -> Dict[str, Any]:
+                ctx: Context | None = None) -> Dict[str, Any]:
     """
     Update cells in a Google Spreadsheet.
     
@@ -340,7 +347,7 @@ def update_cells(spreadsheet_id: str,
     Returns:
         Result of the update operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Construct the range
     full_range = f"{sheet}!{range}"
@@ -364,13 +371,13 @@ def update_cells(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Batch Update Cells",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def batch_update_cells(spreadsheet_id: str,
                        sheet: str,
                        ranges: Dict[str, List[List[Any]]],
-                       ctx: Context = None) -> Dict[str, Any]:
+                       ctx: Context | None = None) -> Dict[str, Any]:
     """
     Batch update multiple ranges in a Google Spreadsheet.
     
@@ -383,7 +390,7 @@ def batch_update_cells(spreadsheet_id: str,
     Returns:
         Result of the batch update operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Prepare the batch update request
     data = []
@@ -411,14 +418,14 @@ def batch_update_cells(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Add Rows",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def add_rows(spreadsheet_id: str,
              sheet: str,
              count: int,
              start_row: Optional[int] = None,
-             ctx: Context = None) -> Dict[str, Any]:
+             ctx: Context | None = None) -> Dict[str, Any]:
     """
     Add rows to a sheet in a Google Spreadsheet.
     
@@ -431,7 +438,7 @@ def add_rows(spreadsheet_id: str,
     Returns:
         Result of the operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get sheet ID
     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -474,14 +481,14 @@ def add_rows(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Add Columns",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def add_columns(spreadsheet_id: str,
                 sheet: str,
                 count: int,
                 start_column: Optional[int] = None,
-                ctx: Context = None) -> Dict[str, Any]:
+                ctx: Context | None = None) -> Dict[str, Any]:
     """
     Add columns to a sheet in a Google Spreadsheet.
     
@@ -494,7 +501,7 @@ def add_columns(spreadsheet_id: str,
     Returns:
         Result of the operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get sheet ID
     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -537,10 +544,10 @@ def add_columns(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="List Sheets",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
-def list_sheets(spreadsheet_id: str, ctx: Context = None) -> List[str]:
+def list_sheets(spreadsheet_id: str, ctx: Context | None = None) -> List[str]:
     """
     List all sheets in a Google Spreadsheet.
     
@@ -550,7 +557,7 @@ def list_sheets(spreadsheet_id: str, ctx: Context = None) -> List[str]:
     Returns:
         List of sheet names
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get spreadsheet metadata
     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -564,14 +571,14 @@ def list_sheets(spreadsheet_id: str, ctx: Context = None) -> List[str]:
 @tool(
     annotations=ToolAnnotations(
         title="Copy Sheet",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def copy_sheet(src_spreadsheet: str,
                src_sheet: str,
                dst_spreadsheet: str,
                dst_sheet: str,
-               ctx: Context = None) -> Dict[str, Any]:
+               ctx: Context | None = None) -> Dict[str, Any]:
     """
     Copy a sheet from one spreadsheet to another.
     
@@ -584,7 +591,7 @@ def copy_sheet(src_spreadsheet: str,
     Returns:
         Result of the operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get source sheet ID
     src = sheets_service.spreadsheets().get(spreadsheetId=src_spreadsheet).execute()
@@ -643,13 +650,13 @@ def copy_sheet(src_spreadsheet: str,
 @tool(
     annotations=ToolAnnotations(
         title="Rename Sheet",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def rename_sheet(spreadsheet: str,
                  sheet: str,
                  new_name: str,
-                 ctx: Context = None) -> Dict[str, Any]:
+                 ctx: Context | None = None) -> Dict[str, Any]:
     """
     Rename a sheet in a Google Spreadsheet.
     
@@ -661,7 +668,7 @@ def rename_sheet(spreadsheet: str,
     Returns:
         Result of the operation
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get sheet ID
     spreadsheet_data = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet).execute()
@@ -702,11 +709,11 @@ def rename_sheet(spreadsheet: str,
 @tool(
     annotations=ToolAnnotations(
         title="Get Multiple Sheet Data",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def get_multiple_sheet_data(queries: List[Dict[str, str]],
-                            ctx: Context = None) -> List[Dict[str, Any]]:
+                            ctx: Context | None = None) -> List[Dict[str, Any]]:
     """
     Get data from multiple specific ranges in Google Spreadsheets.
     
@@ -720,7 +727,7 @@ def get_multiple_sheet_data(queries: List[Dict[str, str]],
         A list of dictionaries, each containing the original query parameters 
         and the fetched 'data' or an 'error'.
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     results = []
     
     for query in queries:
@@ -755,12 +762,12 @@ def get_multiple_sheet_data(queries: List[Dict[str, str]],
 @tool(
     annotations=ToolAnnotations(
         title="Get Multiple Spreadsheet Summary",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def get_multiple_spreadsheet_summary(spreadsheet_ids: List[str],
                                    rows_to_fetch: int = 5,
-                                   ctx: Context = None) -> List[Dict[str, Any]]:
+                                   ctx: Context | None = None) -> List[Dict[str, Any]]:
     """
     Get a summary of multiple Google Spreadsheets, including sheet names, 
     headers, and the first few rows of data for each sheet.
@@ -773,7 +780,7 @@ def get_multiple_spreadsheet_summary(spreadsheet_ids: List[str],
         A list of dictionaries, each representing a spreadsheet summary. 
         Includes spreadsheet title, sheet summaries (title, headers, first rows), or an error.
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     summaries = []
     
     for spreadsheet_id in spreadsheet_ids:
@@ -847,7 +854,7 @@ def get_multiple_spreadsheet_summary(spreadsheet_ids: List[str],
 
 
 @mcp.resource("spreadsheet://{spreadsheet_id}/info")
-def get_spreadsheet_info(spreadsheet_id: str) -> str:
+def get_spreadsheet_info(spreadsheet_id: str, ctx: Context) -> str:
     """
     Get basic information about a Google Spreadsheet.
     
@@ -857,9 +864,7 @@ def get_spreadsheet_info(spreadsheet_id: str) -> str:
     Returns:
         JSON string with spreadsheet information
     """
-    # Access the context through mcp.get_lifespan_context() for resources
-    context = mcp.get_lifespan_context()
-    sheets_service = context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Get spreadsheet metadata
     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
@@ -883,10 +888,10 @@ def get_spreadsheet_info(spreadsheet_id: str) -> str:
 @tool(
     annotations=ToolAnnotations(
         title="Create Spreadsheet",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
-def create_spreadsheet(title: str, folder_id: Optional[str] = None, ctx: Context = None) -> Dict[str, Any]:
+def create_spreadsheet(title: str, folder_id: Optional[str] = None, ctx: Context | None = None) -> Dict[str, Any]:
     """
     Create a new Google Spreadsheet.
     
@@ -898,9 +903,9 @@ def create_spreadsheet(title: str, folder_id: Optional[str] = None, ctx: Context
     Returns:
         Information about the newly created spreadsheet including its ID
     """
-    drive_service = ctx.request_context.lifespan_context.drive_service
+    drive_service = _lifespan(ctx).drive_service
     # Use provided folder_id or fall back to configured default
-    target_folder_id = folder_id or ctx.request_context.lifespan_context.folder_id
+    target_folder_id = folder_id or _lifespan(ctx).folder_id
 
     # Create the spreadsheet
     file_body = {
@@ -931,12 +936,12 @@ def create_spreadsheet(title: str, folder_id: Optional[str] = None, ctx: Context
 @tool(
     annotations=ToolAnnotations(
         title="Create Sheet",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def create_sheet(spreadsheet_id: str,
                 title: str,
-                ctx: Context = None) -> Dict[str, Any]:
+                ctx: Context | None = None) -> Dict[str, Any]:
     """
     Create a new sheet tab in an existing Google Spreadsheet.
     
@@ -947,7 +952,7 @@ def create_sheet(spreadsheet_id: str,
     Returns:
         Information about the newly created sheet
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Define the add sheet request
     request_body = {
@@ -982,10 +987,10 @@ def create_sheet(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="List Spreadsheets",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
-def list_spreadsheets(folder_id: Optional[str] = None, ctx: Context = None) -> List[Dict[str, str]]:
+def list_spreadsheets(folder_id: Optional[str] = None, ctx: Context | None = None) -> List[Dict[str, str]]:
     """
     List all spreadsheets in the specified Google Drive folder.
     If no folder is specified, uses the configured default folder or lists from 'My Drive'.
@@ -997,9 +1002,9 @@ def list_spreadsheets(folder_id: Optional[str] = None, ctx: Context = None) -> L
     Returns:
         List of spreadsheets with their ID and title
     """
-    drive_service = ctx.request_context.lifespan_context.drive_service
+    drive_service = _lifespan(ctx).drive_service
     # Use provided folder_id or fall back to configured default
-    target_folder_id = folder_id or ctx.request_context.lifespan_context.folder_id
+    target_folder_id = folder_id or _lifespan(ctx).folder_id
     
     query = "mimeType='application/vnd.google-apps.spreadsheet'"
     
@@ -1028,13 +1033,13 @@ def list_spreadsheets(folder_id: Optional[str] = None, ctx: Context = None) -> L
 @tool(
     annotations=ToolAnnotations(
         title="Share Spreadsheet",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def share_spreadsheet(spreadsheet_id: str,
                       recipients: List[Dict[str, str]],
                       send_notification: bool = True,
-                      ctx: Context = None) -> Dict[str, List[Dict[str, Any]]]:
+                      ctx: Context | None = None) -> Dict[str, List[Dict[str, Any]]]:
     """
     Share a Google Spreadsheet with multiple users via email, assigning specific roles.
     
@@ -1052,7 +1057,7 @@ def share_spreadsheet(spreadsheet_id: str,
         A dictionary containing lists of 'successes' and 'failures'. 
         Each item in the lists includes the email address and the outcome.
     """
-    drive_service = ctx.request_context.lifespan_context.drive_service
+    drive_service = _lifespan(ctx).drive_service
     successes = []
     failures = []
     
@@ -1097,7 +1102,7 @@ def share_spreadsheet(spreadsheet_id: str,
             error_details = str(e)
             if hasattr(e, 'content'):
                 try:
-                    error_content = json.loads(e.content)
+                    error_content = json.loads(str(e.content))
                     error_details = error_content.get('error', {}).get('message', error_details)
                 except json.JSONDecodeError:
                     pass # Keep the original error string
@@ -1112,10 +1117,10 @@ def share_spreadsheet(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="List Folders",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
-def list_folders(parent_folder_id: Optional[str] = None, ctx: Context = None) -> List[Dict[str, str]]:
+def list_folders(parent_folder_id: Optional[str] = None, ctx: Context | None = None) -> List[Dict[str, str]]:
     """
     List all folders in the specified Google Drive folder.
     If no parent folder is specified, lists folders from 'My Drive' root.
@@ -1127,7 +1132,7 @@ def list_folders(parent_folder_id: Optional[str] = None, ctx: Context = None) ->
     Returns:
         List of folders with their ID, name, and parent information
     """
-    drive_service = ctx.request_context.lifespan_context.drive_service
+    drive_service = _lifespan(ctx).drive_service
     
     query = "mimeType='application/vnd.google-apps.folder'"
     
@@ -1167,12 +1172,12 @@ def list_folders(parent_folder_id: Optional[str] = None, ctx: Context = None) ->
 @tool(
     annotations=ToolAnnotations(
         title="Search Spreadsheets by Name or Content",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def search_spreadsheets(query: str,
                         max_results: int = 20,
-                        ctx: Context = None) -> List[Dict[str, Any]]:
+                        ctx: Context | None = None) -> List[Dict[str, Any]]:
     """
     Search for spreadsheets in Google Drive by name or content.
 
@@ -1184,7 +1189,7 @@ def search_spreadsheets(query: str,
     Returns:
         List of matching spreadsheets with their ID, name, and metadata
     """
-    drive_service = ctx.request_context.lifespan_context.drive_service
+    drive_service = _lifespan(ctx).drive_service
 
     # Limit max_results to reasonable bounds
     max_results = min(max(1, max_results), 100)
@@ -1346,7 +1351,7 @@ def _split_chart_source_ranges(source_range: Dict[str, int]) -> tuple[Dict[str, 
 @tool(
     annotations=ToolAnnotations(
         title="Find Cells",
-        readOnlyHint=True,
+        read_only_hint=True,
     ),
 )
 def find_in_spreadsheet(spreadsheet_id: str,
@@ -1354,7 +1359,7 @@ def find_in_spreadsheet(spreadsheet_id: str,
                         sheet: Optional[str] = None,
                         case_sensitive: bool = False,
                         max_results: int = 50,
-                        ctx: Context = None) -> List[Dict[str, Any]]:
+                        ctx: Context | None = None) -> List[Dict[str, Any]]:
     """
     Find cells containing a specific value in a Google Spreadsheet.
 
@@ -1368,7 +1373,7 @@ def find_in_spreadsheet(spreadsheet_id: str,
     Returns:
         List of found cells with their location (sheet, cell in A1 notation) and value
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     results = []
 
     try:
@@ -1429,12 +1434,12 @@ def find_in_spreadsheet(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Batch Update",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def batch_update(spreadsheet_id: str,
                  requests: List[Dict[str, Any]],
-                 ctx: Context = None) -> Dict[str, Any]:
+                 ctx: Context | None = None) -> Dict[str, Any]:
     """
     Execute a batch update on a Google Spreadsheet using the full batchUpdate endpoint.
     This provides access to all batchUpdate operations including adding sheets, updating properties,
@@ -1488,7 +1493,7 @@ def batch_update(spreadsheet_id: str,
     Returns:
         Result of the batch update operation, including replies for each request
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Validate input
     if not requests:
@@ -1514,7 +1519,7 @@ def batch_update(spreadsheet_id: str,
 @tool(
     annotations=ToolAnnotations(
         title="Add Chart",
-        destructiveHint=True,
+        destructive_hint=True,
     ),
 )
 def add_chart(spreadsheet_id: str,
@@ -1528,7 +1533,7 @@ def add_chart(spreadsheet_id: str,
               position_y: int = 0,
               width: int = 600,
               height: int = 400,
-              ctx: Context = None) -> Dict[str, Any]:
+              ctx: Context | None = None) -> Dict[str, Any]:
     """
     Add a chart to a Google Spreadsheet.
     
@@ -1581,7 +1586,7 @@ def add_chart(spreadsheet_id: str,
             title="Market Share by Product"
         )
     """
-    sheets_service = ctx.request_context.lifespan_context.sheets_service
+    sheets_service = _lifespan(ctx).sheets_service
     
     # Validate chart type
     valid_chart_types = ['COLUMN', 'BAR', 'LINE', 'AREA', 'PIE', 'SCATTER', 'COMBO', 'HISTOGRAM']
@@ -1743,4 +1748,13 @@ def main():
             transport = sys.argv[i + 1]
             break
 
-    mcp.run(transport=transport)
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+    elif transport == "sse":
+        mcp.run(transport="sse", host=_resolved_host, port=_resolved_port)
+    elif transport == "streamable-http":
+        mcp.run(transport="streamable-http", host=_resolved_host, port=_resolved_port)
+    else:
+        raise ValueError(
+            f"Unknown transport '{transport}'. Choose 'stdio', 'sse', or 'streamable-http'."
+        )
