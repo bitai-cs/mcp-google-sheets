@@ -2,3 +2,9 @@
 __pycache__/
 dist/
 .env
+
+# Secrets: never send credentials to the build context
+token.json
+credentials.json
+service_account.json
+*oauth.json

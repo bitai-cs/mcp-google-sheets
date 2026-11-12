@@ -8,6 +8,7 @@ wheels/
 **/credentials.json
 **/token.json
 **/service_account.json
+**/*oauth.json
 
 .env
 .codex/github-todos/
