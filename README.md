@@ -337,7 +337,7 @@ _Refer to the [ID Reference Guide](#-id-reference-guide) for more information ab
 
     > **Priority caveat:** `SERVICE_ACCOUNT_PATH` (and `CREDENTIALS_CONFIG`) take precedence over OAuth whenever the file exists. Unset them if you want the OAuth path to be used.
 
-    *   **Live integration tests:** `tests/test_google_integration.py` reuses this same chain with `interactive=False`. See [Running the live Google integration tests](#-running-the-live-google-integration-tests).
+    *   **Live integration tests:** `tests/test_google_integration.py` reuses this same chain with `interactive=False`. See [Live Google integration tests](#live-google-integration-tests).
 
 ### Method C: Direct Credential Injection (Advanced) 🔒
 
@@ -644,11 +644,28 @@ Google Sheets Spreadsheet ID:
 
 ---
 
-## 🧪 Running the Live Google Integration Tests
+## 🧪 Testing
+
+### Unit tests (no credentials needed)
+
+The default suite is offline: Google clients are stubbed and no API calls are made.
+
+```bash
+uv sync
+uv check
+uv run python -m unittest discover -s tests -p "test_*.py"
+```
+
+*   `uv check` runs the lint and type diagnostics.
+*   The unittest command runs everything. Expect `OK (skipped=1)` — the skipped class is the live Google suite, which requires `RUN_GOOGLE_INTEGRATION=1`.
+*   `tests/test_google_integration.py` also ships `IntegrationCoverageDeclarationTests`, an offline guard that fails when a tool is added without declaring it in `TOOLS_WITH_INTEGRATION_COVERAGE`.
+*   CI runs these same commands on Python 3.10 and 3.12 (`.github/workflows/tests.yml`).
+
+### Live Google integration tests
 
 `tests/test_google_integration.py` calls every MCP tool against the real Google APIs. It is skipped unless `RUN_GOOGLE_INTEGRATION=1`.
 
-### What it needs
+#### What they need
 
 | Variable | Required | Purpose |
 |:---|:---|:---|
@@ -659,7 +676,7 @@ Google Sheets Spreadsheet ID:
 
 The test authenticates with `get_credentials(interactive=False)`, so it never opens a browser: if no usable credential exists the class is skipped with a clear message.
 
-### Local run with OAuth 2.0
+#### Local run with OAuth 2.0
 
 ```powershell
 # One-time: create token.json (opens the browser)
@@ -676,7 +693,9 @@ uv run python -m unittest tests.test_google_integration
 
 Service accounts also work, as long as the folder lives in a **Shared Drive** (see the quota note in Method A).
 
-### GitHub Actions
+On macOS/Linux the same steps are `export CREDENTIALS_PATH=...`, `export TOKEN_PATH=...`, `unset SERVICE_ACCOUNT_PATH`, then the same `uv run` commands.
+
+#### GitHub Actions
 
 The `Google Integration Tests` workflow accepts any of these repository secrets:
 
