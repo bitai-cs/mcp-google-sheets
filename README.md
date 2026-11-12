@@ -80,7 +80,7 @@ _Refer to the [ID Reference Guide](#-id-reference-guide) for more information ab
     *   ➡️ See [**Usage with Claude Desktop**](#-usage-with-claude-desktop) for examples.
 
 6.  **⚡ Optional: Enable Tool Filtering (Reduce Context Usage)**
-    *   By default, all 19 tools are enabled (~13K tokens). To reduce context usage, enable only the tools you need.
+    *   By default, all 20 tools are enabled (~13K tokens). To reduce context usage, enable only the tools you need.
     *   ➡️ See [**Tool Filtering**](#-tool-filtering-reduce-context-usage) for details.
 
 You're ready! Start issuing commands via your MCP client.
@@ -100,7 +100,7 @@ You're ready! Start issuing commands via your MCP client.
 
 ## 🎯 Tool Filtering (Reduce Context Usage)
 
-**Problem:** By default, this MCP server exposes all 19 tools, consuming ~13,000 tokens before any conversation begins. If you only need a few tools, this wastes valuable context window space.
+**Problem:** By default, this MCP server exposes all 20 tools, consuming ~13,000 tokens before any conversation begins. If you only need a few tools, this wastes valuable context window space.
 
 **Solution:** Use tool filtering to enable only the tools you actually use.
 
@@ -317,6 +317,8 @@ _Refer to the [ID Reference Guide](#-id-reference-guide) for more information ab
         *   `DRIVE_FOLDER_ID`: The ID of the shared Google Drive folder.
         *(See [Ultra Quick Start](#-ultra-quick-start-using-uvx) for OS-specific examples)*
 
+    > **Storage quota:** service accounts have **zero** Drive storage quota. They can edit files that are shared with them, but they cannot create new files in a personal "My Drive" folder; Google returns `403 storageQuotaExceeded`. Use a **Shared Drive** (add the service account as Content Manager) or switch to OAuth 2.0 (Method B) when you need to create spreadsheets.
+
 ### Method B: OAuth 2.0 (Interactive / Personal Use) 🧑‍💻
 
 *   **Why?** For personal use or local development where interactive browser login is okay.
@@ -326,6 +328,16 @@ _Refer to the [ID Reference Guide](#-id-reference-guide) for more information ab
     3.  **Set Environment Variables:**
         *   `CREDENTIALS_PATH`: Path to the downloaded OAuth credentials JSON file (default: `credentials.json`).
         *   `TOKEN_PATH`: Path to store the user's refresh token after first login (default: `token.json`). Must be writable.
+    4.  **Create the token once.** The server starts the browser flow automatically on its first launch when no valid token exists. To create `token.json` without starting the server:
+        ```bash
+        python -c "from mcp_google_sheets.server import get_credentials; get_credentials()"
+        ```
+        The refresh token stored in `token.json` is long-lived. You only authorize again if you revoke access or delete the file.
+    5.  **Headless or CI:** call `get_credentials(interactive=False)`. It refreshes an existing token but never opens a browser, and raises a clear error when no token is available instead of blocking forever.
+
+    > **Priority caveat:** `SERVICE_ACCOUNT_PATH` (and `CREDENTIALS_CONFIG`) take precedence over OAuth whenever the file exists. Unset them if you want the OAuth path to be used.
+
+    *   **Live integration tests:** `tests/test_google_integration.py` reuses this same chain with `interactive=False`. See [Live Google integration tests](#live-google-integration-tests).
 
 ### Method C: Direct Credential Injection (Advanced) 🔒
 
@@ -373,9 +385,10 @@ _Refer to the [ID Reference Guide](#-id-reference-guide) for more information ab
 The server checks for credentials in this order:
 
 1.  `CREDENTIALS_CONFIG` (Base64 content)
-2.  `SERVICE_ACCOUNT_PATH` (Path to Service Account JSON)
-3.  `CREDENTIALS_PATH` (Path to OAuth JSON) - triggers interactive flow if token is missing/expired
-4.  **Application Default Credentials (ADC)** - automatic fallback
+2.  `SERVICE_ACCOUNT_PATH` (Path to Service Account JSON, only when the file exists)
+3.  `TOKEN_PATH` (Stored OAuth token) - refreshed automatically when expired
+4.  `CREDENTIALS_PATH` (Path to OAuth JSON) - triggers the interactive browser flow when no valid token exists
+5.  **Application Default Credentials (ADC)** - automatic fallback
 
 **Environment Variable Summary:**
 
@@ -416,7 +429,7 @@ If you want to modify the code:
     # uv run start
     ```
 
-### Method 3: Docker (SSE transport)
+### Method 3: Docker (Streamable HTTP transport)
 
 Run the server in a container using the included `Dockerfile`:
 
@@ -424,18 +437,32 @@ Run the server in a container using the included `Dockerfile`:
 # Build the image
 docker build -t mcp-google-sheets .
 
-# Run (SSE on port 8000)
+# Run (MCP endpoint: http://localhost:8000/mcp)
 # NOTE: Prefer CREDENTIALS_CONFIG (Base64 credentials content) in containers.
 docker run --rm -p 8000:8000 ^
-  -e HOST=0.0.0.0 ^
-  -e PORT=8000 ^
   -e CREDENTIALS_CONFIG=YOUR_BASE64_CREDENTIALS ^
   -e DRIVE_FOLDER_ID=YOUR_DRIVE_FOLDER_ID ^
   mcp-google-sheets
 ```
 
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
-- The container starts with `--transport sse` and listens on `HOST`/`PORT`. Point your MCP client to `http://localhost:8000` using SSE transport.
+- Dependencies are installed from `uv.lock` at build time, so the container runs the same versions as a local `uv sync`.
+- The container starts with `--transport streamable-http` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client at `http://localhost:8000/mcp`.
+- Override `HOST`/`PORT` for a different bind address or port, e.g. `-e PORT=9000 -p 9000:9000`.
+- `--transport` accepts `stdio` (default for the CLI), `streamable-http`, or the legacy `sse`. To use SSE, override the container command:
+  ```bash
+  docker run --rm -p 8000:8000 -e CREDENTIALS_CONFIG=... mcp-google-sheets ^
+    uv run mcp-google-sheets --transport sse
+  ```
+
+Connect an HTTP-capable client to the endpoint:
+
+```bash
+# Claude Code
+claude mcp add --transport http google-sheets http://localhost:8000/mcp
+```
+
+> **Note:** stdio-only clients (such as Claude Desktop) need a bridge, e.g. `npx mcp-remote http://localhost:8000/mcp`.
 
 ---
 
@@ -630,6 +657,72 @@ Google Sheets Spreadsheet ID:
 
 ---
 
+## 🧪 Testing
+
+### Unit tests (no credentials needed)
+
+The default suite is offline: Google clients are stubbed and no API calls are made.
+
+```bash
+uv sync
+uv check
+uv run python -m unittest discover -s tests -p "test_*.py"
+```
+
+*   `uv check` runs the lint and type diagnostics.
+*   The unittest command runs everything. Expect `OK (skipped=1)` — the skipped class is the live Google suite, which requires `RUN_GOOGLE_INTEGRATION=1`.
+*   `tests/test_google_integration.py` also ships `IntegrationCoverageDeclarationTests`, an offline guard that fails when a tool is added without declaring it in `TOOLS_WITH_INTEGRATION_COVERAGE`.
+*   CI runs these same commands on Python 3.10 and 3.12 (`.github/workflows/tests.yml`).
+
+### Live Google integration tests
+
+`tests/test_google_integration.py` calls every MCP tool against the real Google APIs. It is skipped unless `RUN_GOOGLE_INTEGRATION=1`.
+
+#### What they need
+
+| Variable | Required | Purpose |
+|:---|:---|:---|
+| `RUN_GOOGLE_INTEGRATION=1` | yes | Enables the live test class. |
+| `DRIVE_FOLDER_ID` | yes | Disposable folder where test spreadsheets are created and deleted. |
+| `CREDENTIALS_CONFIG` / `SERVICE_ACCOUNT_PATH` / `TOKEN_PATH` | one | Resolved through the same chain as the server. |
+| `GOOGLE_TEST_SHARE_EMAIL` | no | Exercises a real share; without it the test asserts the invalid-role path. |
+
+The test authenticates with `get_credentials(interactive=False)`, so it never opens a browser: if no usable credential exists the class is skipped with a clear message.
+
+#### Local run with OAuth 2.0
+
+```powershell
+# One-time: create token.json (opens the browser)
+$env:CREDENTIALS_PATH = "C:\path\to\credentials.json"
+$env:TOKEN_PATH       = "C:\path\to\token.json"
+uv run python -c "from mcp_google_sheets.server import get_credentials; get_credentials()"
+
+# Run the suite (unset SERVICE_ACCOUNT_PATH so OAuth wins)
+Remove-Item Env:SERVICE_ACCOUNT_PATH -ErrorAction SilentlyContinue
+$env:RUN_GOOGLE_INTEGRATION = "1"
+$env:DRIVE_FOLDER_ID        = "<disposable-folder-id>"
+uv run python -m unittest tests.test_google_integration
+```
+
+Service accounts also work, as long as the folder lives in a **Shared Drive** (see the quota note in Method A).
+
+On macOS/Linux the same steps are `export CREDENTIALS_PATH=...`, `export TOKEN_PATH=...`, `unset SERVICE_ACCOUNT_PATH`, then the same `uv run` commands.
+
+#### GitHub Actions
+
+The `Google Integration Tests` workflow accepts any of these repository secrets:
+
+*   `GOOGLE_DRIVE_FOLDER_ID` (required)
+*   `GOOGLE_SERVICE_ACCOUNT_JSON` — full service-account key JSON, or
+*   `GOOGLE_CREDENTIALS_CONFIG` — Base64 service-account JSON, or
+*   `GOOGLE_OAUTH_TOKEN_JSON` — contents of a `token.json` generated once with a Desktop OAuth client
+
+The refresh token in `token.json` is long-lived. If it is revoked, regenerate it locally and update the secret; CI will not start an interactive login.
+
+Only the first method in the [authentication priority](#authentication-priority--summary) that resolves is used, so a configured service-account secret takes precedence over the OAuth token.
+
+---
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please open an issue to discuss bugs or feature requests. Pull requests are appreciated.
@@ -644,6 +737,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Credits
 
-*   Built with [FastMCP](https://github.com/cognitiveapis/fastmcp).
+*   Built with the [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) `MCPServer` (formerly FastMCP).
 *   Inspired by [kazz187/mcp-google-spreadsheet](https://github.com/kazz187/mcp-google-spreadsheet).
 *   Uses Google API Python Client libraries.
