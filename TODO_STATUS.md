@@ -23,6 +23,7 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - `done` Fix the README tool count: it said "19 tools" but the server exposes 20.
 - `done` Extract `get_credentials(interactive=...)` from the lifespan and let the live suite reuse it, so OAuth 2.0, service account, and ADC all work for tests without a browser prompt.
 - `done` Add OAuth 2.0 support to the live-test workflow through the optional `GOOGLE_OAUTH_TOKEN_JSON` secret.
+- `done` Align the Docker image with the MCP SDK 2.x codebase: pin the Alpine base, install from `uv.lock` (`--locked --no-editable`), copy the resolved venv into the runner instead of re-resolving from PyPI, and declare `HOST`/`PORT`/`EXPOSE 8000`.
 - `todo` Review PR #65 against current tests. If a signature-preservation bug still exists, reproduce it with a failing unit test first; otherwise close as obsolete.
 - `closeable` Close issue #53. Reporter retested, cannot reproduce, and explicitly asked to close.
 - `done` Add docs for service-account Drive quota behavior. README now documents the zero-quota limitation, the Shared Drive workaround, and OAuth as the alternative for creating files (issues #40/#75).

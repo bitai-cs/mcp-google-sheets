@@ -448,7 +448,8 @@ docker run --rm -p 8000:8000 ^
 ```
 
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
-- The container starts with `--transport sse` and listens on `HOST`/`PORT`. Point your MCP client to `http://localhost:8000` using SSE transport.
+- Dependencies are installed from `uv.lock` at build time, so the container runs the same versions as a local `uv sync`.
+- The container starts with `--transport sse` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client to `http://localhost:8000` using SSE transport.
 - `--transport` accepts `stdio` (default), `sse`, or `streamable-http`. With `streamable-http`, the endpoint is `/mcp` on the same `HOST`/`PORT`.
 
 ---
