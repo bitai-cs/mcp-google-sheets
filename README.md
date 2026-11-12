@@ -429,7 +429,7 @@ If you want to modify the code:
     # uv run start
     ```
 
-### Method 3: Docker (SSE transport)
+### Method 3: Docker (Streamable HTTP transport)
 
 Run the server in a container using the included `Dockerfile`:
 
@@ -437,11 +437,9 @@ Run the server in a container using the included `Dockerfile`:
 # Build the image
 docker build -t mcp-google-sheets .
 
-# Run (SSE on port 8000)
+# Run (MCP endpoint: http://localhost:8000/mcp)
 # NOTE: Prefer CREDENTIALS_CONFIG (Base64 credentials content) in containers.
 docker run --rm -p 8000:8000 ^
-  -e HOST=0.0.0.0 ^
-  -e PORT=8000 ^
   -e CREDENTIALS_CONFIG=YOUR_BASE64_CREDENTIALS ^
   -e DRIVE_FOLDER_ID=YOUR_DRIVE_FOLDER_ID ^
   mcp-google-sheets
@@ -449,8 +447,22 @@ docker run --rm -p 8000:8000 ^
 
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
 - Dependencies are installed from `uv.lock` at build time, so the container runs the same versions as a local `uv sync`.
-- The container starts with `--transport sse` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client to `http://localhost:8000` using SSE transport.
-- `--transport` accepts `stdio` (default), `sse`, or `streamable-http`. With `streamable-http`, the endpoint is `/mcp` on the same `HOST`/`PORT`.
+- The container starts with `--transport streamable-http` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client at `http://localhost:8000/mcp`.
+- Override `HOST`/`PORT` for a different bind address or port, e.g. `-e PORT=9000 -p 9000:9000`.
+- `--transport` accepts `stdio` (default for the CLI), `streamable-http`, or the legacy `sse`. To use SSE, override the container command:
+  ```bash
+  docker run --rm -p 8000:8000 -e CREDENTIALS_CONFIG=... mcp-google-sheets ^
+    uv run mcp-google-sheets --transport sse
+  ```
+
+Connect an HTTP-capable client to the endpoint:
+
+```bash
+# Claude Code
+claude mcp add --transport http google-sheets http://localhost:8000/mcp
+```
+
+> **Note:** stdio-only clients (such as Claude Desktop) need a bridge, e.g. `npx mcp-remote http://localhost:8000/mcp`.
 
 ---
 

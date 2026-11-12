@@ -17,13 +17,14 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - `done` Establish release and PR test gates. Unit tests are required on PRs; release publishing requires live Google integration tests.
 - `done` Resolve stdout logging risk: PR #80 replaced diagnostic `print()` calls with stderr logging, added `cache_discovery=False`, and added stdout-safety regression tests.
 - `done` Migrate to the MCP Python SDK 2.x (`MCPServer`), fix the resource's removed `get_lifespan_context()` call, and bring `uv check` to zero diagnostics.
-- `todo` Release the MCP SDK 2.x migration as a breaking change: bump the version, document the `mcp>=2.3,<3` requirement, and pass the live Google integration gate before publishing.
+- `todo` Release the MCP SDK 2.x migration as a breaking change: bump the version, document the `mcp>=2.3,<3` requirement, note that the Docker image now defaults to the Streamable HTTP transport (`/mcp` instead of `/sse`), and pass the live Google integration gate before publishing.
 - `todo` Confirm the Python 3.10 and 3.12 CI unit jobs pass with the mcp 2.3 lock (`uv sync --frozen`).
 - `done` Run the live Google integration suite after the migration, including the `spreadsheet://{id}/info` resource path: passed locally on 2026-11-11 with OAuth 2.0 (2 tests, ~15 s, no leftover files).
 - `done` Fix the README tool count: it said "19 tools" but the server exposes 20.
 - `done` Extract `get_credentials(interactive=...)` from the lifespan and let the live suite reuse it, so OAuth 2.0, service account, and ADC all work for tests without a browser prompt.
 - `done` Add OAuth 2.0 support to the live-test workflow through the optional `GOOGLE_OAUTH_TOKEN_JSON` secret.
 - `done` Align the Docker image with the MCP SDK 2.x codebase: pin the Alpine base, install from `uv.lock` (`--locked --no-editable`), copy the resolved venv into the runner instead of re-resolving from PyPI, and declare `HOST`/`PORT`/`EXPOSE 8000`.
+- `done` Switch the container default transport from SSE to Streamable HTTP (`/mcp`); SSE stays available as an explicit opt-in. No known Docker clients depend on `/sse`, so no migration path was needed.
 - `todo` Review PR #65 against current tests. If a signature-preservation bug still exists, reproduce it with a failing unit test first; otherwise close as obsolete.
 - `closeable` Close issue #53. Reporter retested, cannot reproduce, and explicitly asked to close.
 - `done` Add docs for service-account Drive quota behavior. README now documents the zero-quota limitation, the Shared Drive workaround, and OAuth as the alternative for creating files (issues #40/#75).

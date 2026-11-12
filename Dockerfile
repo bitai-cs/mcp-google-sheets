@@ -52,4 +52,5 @@ COPY --from=builder /app/.venv /app/.venv
 
 EXPOSE 8000
 
-CMD ["uv", "run", "mcp-google-sheets", "--transport", "sse"]
+# Streamable HTTP transport: the MCP endpoint is /mcp on PORT
+CMD ["uv", "run", "mcp-google-sheets", "--transport", "streamable-http"]
