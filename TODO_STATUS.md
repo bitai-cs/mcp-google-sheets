@@ -1,6 +1,6 @@
 # mcp-google-sheets Todo Status
 
-Last refreshed: 2026-05-14
+Last refreshed: 2026-11-11
 Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 
 ## Snapshot
@@ -8,14 +8,19 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - Open issues: 17
 - Open pull requests: 7
 - Latest release: `v0.6.3` published from `2869443`.
-- Current `main` already includes: Docker/SSE support, `CREDENTIALS_CONFIG`, folder targeting and `list_folders`, `search_spreadsheets`, `find_in_spreadsheet`, arbitrary `batch_update`, chart creation, tool filtering, ADC, and `include_grid_data`.
+- Current `main` already includes: Docker/SSE support, `CREDENTIALS_CONFIG`, folder targeting and `list_folders`, `search_spreadsheets`, `find_in_spreadsheet`, arbitrary `batch_update`, chart creation, tool filtering, ADC, `include_grid_data`, and the MCP Python SDK 2.x (`MCPServer`).
 - Current quality gates: required PR unit checks for Python 3.10 and 3.12; release publishing gated on live Google integration tests covering every current MCP tool.
-- Latest verification: local unit tests passed, required PR checks passed for #80, and the `v0.6.3` `Publishing` workflow passed build, live Google integration tests, and PyPI upload.
+- Latest verification: `uv check` clean (0 diagnostics) and the credential-free suite passed (22 tests; the live Google class skips without credentials) after the MCP SDK 2.x migration; last release verification was the `v0.6.3` `Publishing` workflow (build, live Google integration tests, PyPI upload).
 
 ## P0/P1: Do Next
 
 - `done` Establish release and PR test gates. Unit tests are required on PRs; release publishing requires live Google integration tests.
 - `done` Resolve stdout logging risk: PR #80 replaced diagnostic `print()` calls with stderr logging, added `cache_discovery=False`, and added stdout-safety regression tests.
+- `done` Migrate to the MCP Python SDK 2.x (`MCPServer`), fix the resource's removed `get_lifespan_context()` call, and bring `uv check` to zero diagnostics.
+- `todo` Release the MCP SDK 2.x migration as a breaking change: bump the version, document the `mcp>=2.3,<3` requirement, and pass the live Google integration gate before publishing.
+- `todo` Confirm the Python 3.10 and 3.12 CI unit jobs pass with the mcp 2.3 lock (`uv sync --frozen`).
+- `todo` Run the live Google integration suite after the migration, especially the `spreadsheet://{id}/info` resource path.
+- `todo` Fix the README tool count: it says "19 tools" in several places but the server exposes 20 (`list_folders` is missing from the list).
 - `todo` Review PR #65 against current tests. If a signature-preservation bug still exists, reproduce it with a failing unit test first; otherwise close as obsolete.
 - `closeable` Close issue #53. Reporter retested, cannot reproduce, and explicitly asked to close.
 - `todo` Add docs for service-account Drive quota behavior. Issues #40 and #75 are recurring reports that service accounts cannot create files in "My Drive" quota. Document OAuth vs service account behavior, Shared Drive workaround, and folder ownership expectations.
@@ -31,13 +36,13 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - `review` #65 "fix: use functools.wraps to preserve function signatures in tool decorator": verify with a failing signature/introspection unit test before accepting.
 - `review` #63 "Add comment management tools": conflicting. Rebase or replace before functional review.
 - `review` #45 "feat: add format_cells tool": conflicting and requested by issue #25. Worth reviving because formatting demand is clear.
-- `blocked` #39 "fix(server): change main to async def": conflicting and likely obsolete because current `main()` is sync and `mcp.run()` is sync-style.
+- `closeable` #39 "fix(server): change main to async def": confirmed obsolete after the MCP SDK 2.x migration; `MCPServer.run()` remains synchronous. Close with a version note.
 
 ## Issues: Close, Answer, or Narrow
 
 - `closeable` #53 list_sheets only returns one sheet: user says fixed and asks to close.
 - `closeable` #49 Docker/SSE mode: PR #50 merged. Leave a short note and close if current Docker instructions are sufficient.
-- `closeable` #19 main transport parameters: current `main()` supports `--transport`, and host/port env vars are supported. Close or narrow to additional FastMCP kwargs.
+- `done` #19 main transport parameters: `main()` now explicitly supports `stdio`, `sse`, and `streamable-http`, with host/port passed to `run()` for HTTP transports and a clear error for unknown values. Close with a version note.
 - `closeable` #13 arbitrary batchUpdate: current `batch_update` exists and live integration coverage now exercises it. Close after checking docs mention Google request specs.
 - `closeable or narrow` #76 cannot find sheet by name: `search_spreadsheets` exists on `main` and live integration coverage exercises it. Update docs/examples, then close or ask reporter to retry latest.
 - `answer` #56 Antigravity initialize EOF: ask for logs, transport, config, and version. The stdout logging fix shipped in `v0.6.3`, so ask the reporter to retry latest before deeper debugging.
