@@ -1,4 +1,3 @@
-import base64
 import json
 import os
 import re
@@ -7,7 +6,6 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from mcp_google_sheets import server
@@ -69,22 +67,12 @@ class GoogleSheetsIntegrationTests(unittest.TestCase):
         if not folder_id:
             raise unittest.SkipTest("DRIVE_FOLDER_ID is required for live integration tests")
 
-        creds = None
-        credentials_config = os.environ.get("CREDENTIALS_CONFIG")
-        service_account_path = os.environ.get("SERVICE_ACCOUNT_PATH")
-
-        if credentials_config:
-            creds = service_account.Credentials.from_service_account_info(
-                json.loads(base64.b64decode(credentials_config)),
-                scopes=server.SCOPES,
-            )
-        elif service_account_path:
-            creds = service_account.Credentials.from_service_account_file(
-                service_account_path,
-                scopes=server.SCOPES,
-            )
-        else:
-            raise unittest.SkipTest("SERVICE_ACCOUNT_PATH or CREDENTIALS_CONFIG is required")
+        # Reuse the server's auth chain (service account -> OAuth token -> ADC).
+        # interactive=False keeps CI/headless runs from blocking on a browser login.
+        try:
+            creds = server.get_credentials(interactive=False)
+        except Exception as exc:
+            raise unittest.SkipTest(f"No usable Google credentials: {exc}")
 
         cls.sheets_service = build("sheets", "v4", credentials=creds, cache_discovery=False)
         cls.drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
@@ -152,6 +140,10 @@ class GoogleSheetsIntegrationTests(unittest.TestCase):
 
         formulas = server.get_sheet_formulas(primary_id, "Sheet1", "D2:D3", ctx=self.ctx)
         self.assertEqual(formulas, [["=B2*2"], ["=B3*2"]])
+
+        info = json.loads(server.get_spreadsheet_info(primary_id, ctx=self.ctx))
+        self.assertEqual(info["title"], primary_title)
+        self.assertIn("Sheet1", [sheet["title"] for sheet in info["sheets"]])
 
         batch_cells = server.batch_update_cells(
             primary_id,

@@ -10,7 +10,7 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - Latest release: `v0.6.3` published from `2869443`.
 - Current `main` already includes: Docker/SSE support, `CREDENTIALS_CONFIG`, folder targeting and `list_folders`, `search_spreadsheets`, `find_in_spreadsheet`, arbitrary `batch_update`, chart creation, tool filtering, ADC, `include_grid_data`, and the MCP Python SDK 2.x (`MCPServer`).
 - Current quality gates: required PR unit checks for Python 3.10 and 3.12; release publishing gated on live Google integration tests covering every current MCP tool.
-- Latest verification: `uv check` clean (0 diagnostics) and the credential-free suite passed (22 tests; the live Google class skips without credentials) after the MCP SDK 2.x migration; last release verification was the `v0.6.3` `Publishing` workflow (build, live Google integration tests, PyPI upload).
+- Latest verification: `uv check` clean (0 diagnostics), the credential-free suite passed (22 tests; the live class skips without `RUN_GOOGLE_INTEGRATION=1`), and the live Google suite passed with OAuth 2.0 on 2026-11-11; last release verification was the `v0.6.3` `Publishing` workflow (build, live Google integration tests, PyPI upload).
 
 ## P0/P1: Do Next
 
@@ -19,11 +19,13 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 - `done` Migrate to the MCP Python SDK 2.x (`MCPServer`), fix the resource's removed `get_lifespan_context()` call, and bring `uv check` to zero diagnostics.
 - `todo` Release the MCP SDK 2.x migration as a breaking change: bump the version, document the `mcp>=2.3,<3` requirement, and pass the live Google integration gate before publishing.
 - `todo` Confirm the Python 3.10 and 3.12 CI unit jobs pass with the mcp 2.3 lock (`uv sync --frozen`).
-- `todo` Run the live Google integration suite after the migration, especially the `spreadsheet://{id}/info` resource path.
-- `todo` Fix the README tool count: it says "19 tools" in several places but the server exposes 20 (`list_folders` is missing from the list).
+- `done` Run the live Google integration suite after the migration, including the `spreadsheet://{id}/info` resource path: passed locally on 2026-11-11 with OAuth 2.0 (2 tests, ~15 s, no leftover files).
+- `done` Fix the README tool count: it said "19 tools" but the server exposes 20.
+- `done` Extract `get_credentials(interactive=...)` from the lifespan and let the live suite reuse it, so OAuth 2.0, service account, and ADC all work for tests without a browser prompt.
+- `done` Add OAuth 2.0 support to the live-test workflow through the optional `GOOGLE_OAUTH_TOKEN_JSON` secret.
 - `todo` Review PR #65 against current tests. If a signature-preservation bug still exists, reproduce it with a failing unit test first; otherwise close as obsolete.
 - `closeable` Close issue #53. Reporter retested, cannot reproduce, and explicitly asked to close.
-- `todo` Add docs for service-account Drive quota behavior. Issues #40 and #75 are recurring reports that service accounts cannot create files in "My Drive" quota. Document OAuth vs service account behavior, Shared Drive workaround, and folder ownership expectations.
+- `done` Add docs for service-account Drive quota behavior. README now documents the zero-quota limitation, the Shared Drive workaround, and OAuth as the alternative for creating files (issues #40/#75).
 - `todo` Update Claude example prompts from issue #74 so examples explicitly use the Google Sheets MCP connector rather than encouraging local XLSX creation.
 
 ## PR Review Queue
@@ -62,7 +64,7 @@ Source: `gh` authenticated as `xing5`, repo `xing5/mcp-google-sheets`.
 
 - Test policy: no new feature implementation should proceed without a written test plan and local unit tests. Live Google tests are opt-in through the `Google Integration Tests` workflow and mandatory in the release workflow.
 - Release policy: PyPI publishing is gated on the live Google integration test job in the `Publishing` workflow. The live suite covers every current MCP tool function and fails if new tools are added without integration coverage.
-- Useful live-test setup: add GitHub secrets `GOOGLE_DRIVE_FOLDER_ID` and either `GOOGLE_SERVICE_ACCOUNT_JSON` or `GOOGLE_CREDENTIALS_CONFIG`. The folder must be disposable because tests create and delete spreadsheets.
+- Useful live-test setup: add GitHub secrets `GOOGLE_DRIVE_FOLDER_ID` and one of `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CREDENTIALS_CONFIG`, or `GOOGLE_OAUTH_TOKEN_JSON`. The folder must be disposable because tests create and delete spreadsheets. A service account needs a Shared Drive; a personal Gmail folder requires OAuth.
 - Branch protection requires `Unit tests (3.10)` and `Unit tests (3.12)` on PRs targeting `main`.
 - Many open issues are solved by current `main` but remain open because docs/comments were not updated.
 - Prefer closing stale solved issues with a release/version note rather than leaving them as active backlog.

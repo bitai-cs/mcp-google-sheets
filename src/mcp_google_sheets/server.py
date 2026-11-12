@@ -90,10 +90,22 @@ def _lifespan(ctx: Context | None) -> SpreadsheetContext:
     return cast(SpreadsheetContext, ctx.request_context.lifespan_context)
 
 
-@asynccontextmanager
-async def spreadsheet_lifespan(server: MCPServer) -> AsyncGenerator[SpreadsheetContext, None]:
-    """Manage Google Spreadsheet API connection lifecycle"""
-    # Authenticate and build the service
+def get_credentials(*, interactive: bool = True) -> Any:
+    """Resolve Google API credentials using the server's authentication priority.
+
+    Order: ``CREDENTIALS_CONFIG`` -> ``SERVICE_ACCOUNT_PATH`` -> OAuth 2.0 token at
+    ``TOKEN_PATH`` (refreshed when expired) -> OAuth 2.0 browser flow through
+    ``CREDENTIALS_PATH`` -> Application Default Credentials.
+
+    Args:
+        interactive: When ``True`` (default) a missing or unusable OAuth token starts
+            the local browser flow. When ``False`` the browser flow is skipped, so
+            non-interactive callers (tests, CI) never block waiting for a login while
+            an existing ``TOKEN_PATH`` or ADC still works.
+
+    Raises:
+        RuntimeError: When every authentication method fails.
+    """
     creds = None
 
     if CREDENTIALS_CONFIG:
@@ -135,18 +147,25 @@ async def spreadsheet_lifespan(server: MCPServer) -> AsyncGenerator[SpreadsheetC
                     logger.info("Triggering reauthentication flow...")
                     creds = None  # Clear creds to trigger OAuth flow below
 
-            # If refresh failed or creds don't exist, run OAuth flow
-            if not creds:
-                try:
-                    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
-                    creds = flow.run_local_server(port=0)
+            # If refresh failed or creds don't exist, run the OAuth flow
+            if not creds or not creds.valid:
+                if interactive:
+                    try:
+                        flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+                        creds = flow.run_local_server(port=0)
 
-                    # Save the credentials for the next run
-                    with open(TOKEN_PATH, 'w') as token:
-                        token.write(creds.to_json())
-                    logger.info("Successfully authenticated using OAuth flow")
-                except Exception as e:
-                    logger.error("Error with OAuth flow: %s", e)
+                        # Save the credentials for the next run
+                        with open(TOKEN_PATH, 'w') as token:
+                            token.write(creds.to_json())
+                        logger.info("Successfully authenticated using OAuth flow")
+                    except Exception as e:
+                        logger.error("Error with OAuth flow: %s", e)
+                        creds = None
+                else:
+                    logger.info(
+                        "No valid OAuth token at '%s' and interactive authentication is "
+                        "disabled; skipping the browser flow.", TOKEN_PATH
+                    )
                     creds = None
     
     # Try Application Default Credentials if no creds thus far
@@ -161,8 +180,23 @@ async def spreadsheet_lifespan(server: MCPServer) -> AsyncGenerator[SpreadsheetC
             logger.info("Successfully authenticated using ADC for project: %s", project)
         except Exception as e:
             logger.error("Error using Application Default Credentials: %s", e)
-            raise Exception("All authentication methods failed. Please configure credentials.")
-    
+            message = "All authentication methods failed. Please configure credentials."
+            if not interactive:
+                message += (
+                    f" Interactive OAuth is disabled: create '{TOKEN_PATH}' once by running the "
+                    f"server with '{CREDENTIALS_PATH}' present, or by calling "
+                    "get_credentials(interactive=True)."
+                )
+            raise RuntimeError(message) from e
+
+    return creds
+
+
+@asynccontextmanager
+async def spreadsheet_lifespan(server: MCPServer) -> AsyncGenerator[SpreadsheetContext, None]:
+    """Manage Google Spreadsheet API connection lifecycle"""
+    creds = get_credentials()
+
     # Build the services
     sheets_service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
     drive_service = build('drive', 'v3', credentials=creds, cache_discovery=False)
